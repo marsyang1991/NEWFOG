@@ -2,3 +2,4 @@
 data/
 useless1/
 log/
+*.pyc
