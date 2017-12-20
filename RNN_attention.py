@@ -60,7 +60,8 @@ def attention(inputs):
     a = LSTM(5, return_sequences=False)(inputs)
     a = RepeatVector(128)(a)
     a_probs = Permute((2, 1), name="activation_vec")(a)
-    output_attention = merge([a_probs, inputs], mode='mul', name='attention_mul')
+    output_attention = Multiply()([a_probs, inputs])
+    # output_attention = merge([a_probs, inputs], mode='mul', name='attention_mul')
     return output_attention
 
 
