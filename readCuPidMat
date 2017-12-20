@@ -1,0 +1,7 @@
+import scipy.io as sio
+
+
+mat_path = 'pd001_imu_abs_fog_event_context.mat'
+data = sio.loadmat(mat_path)
+print data['abs_ankle_left']
+print(data.keys())
