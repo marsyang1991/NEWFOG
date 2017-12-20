@@ -8,14 +8,13 @@ from keras.layers.pooling import MaxPool1D
 from keras.utils import to_categorical
 import h5py
 from sklearn.metrics import confusion_matrix
-from keras.callbacks import TensorBoard,EarlyStopping
+from keras.callbacks import TensorBoard, EarlyStopping
 from demo import *
 from Config import config_rnn
 
 
-
-def load_data():
-    file = h5py.File('TrainSet_sequence_5.h5', 'r')
+def load_data(pre=0):
+    file = h5py.File('TrainSet_5.h5', 'r')
     train_set = file['train_set_x'][:]
     train_set_y = file['train_set_y'][:]
     validate_set = file['validate_set_x'][:]
@@ -23,8 +22,23 @@ def load_data():
     test_set = file['test_set_x'][:]
     test_set_y = file['test_set_y'][:]
     file.close()
+    train_set = train_set[0:train_set.shape[0] - pre, :, :, :]
+    train_set_y = make_pre_label(train_set_y, pre)
+    validate_set = validate_set[0:validate_set.shape[0] - pre, :, :, :]
+    validate_set_y = make_pre_label(validate_set_y, pre)
+    test_set = test_set[0:test_set.shape[0] - pre, :, :, :]
+    test_set_y = make_pre_label(test_set_y, pre)
     return train_set, train_set_y, validate_set, validate_set_y, test_set, test_set_y
 
+
+def make_pre_label(ys, pre=0):
+    if pre == 0:
+        return ys
+    else:
+        new_ys = np.empty([ys.shape[0] - pre])
+        for i in range(new_ys.shape[0]):
+            new_ys[i] = 1 if np.sum(ys[i:i + pre]) != 0 else 0
+        return new_ys
 
 def build_model(config):
     input1 = Input(shape=config.input_shape, name='input')
@@ -56,7 +70,7 @@ def my_to_catogrical(y):
 
 
 if __name__ == "__main__":
-    train_set, train_set_y, validate_set, validate_set_y, test_set, test_set_y = load_data()
+    train_set, train_set_y, validate_set, validate_set_y, test_set, test_set_y = load_data(pre=1)
     # print(
     #     "train_set is {0},validate_set is {1},test_set is {2}".format(train_set.shape, validate_set.shape,
     #                                                                   test_set.shape))
@@ -68,7 +82,8 @@ if __name__ == "__main__":
         # print(y.shape)
         validate_y = to_categorical(validate_set_y, num_classes=2)
         model.fit(x=train_set, y=train_y, batch_size=1, epochs=10,
-                  validation_data=(validate_set, validate_y),callbacks=[TensorBoard(log_dir='./temp/log_rnn'),EarlyStopping(verbose=1)])
+                  validation_data=(validate_set, validate_y),
+                  callbacks=[TensorBoard(log_dir='./temp/log_rnn'), EarlyStopping(verbose=1)])
         model.save('rnn')
     else:
         model = load_model('rnn')

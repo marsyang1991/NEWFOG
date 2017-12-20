@@ -8,7 +8,7 @@ from keras.callbacks import TensorBoard, EarlyStopping
 from demo import *
 from Config import config_rnn
 from utils import *
-
+import seq2seq
 
 def load_data():
     file = h5py.File('TrainSet_5.h5', 'r')
@@ -21,7 +21,6 @@ def load_data():
     file.close()
     return train_set, train_set_y, validate_set, validate_set_y, test_set, test_set_y
 
-
 def build_model(config):
     input1 = Input(shape=config.input_shape, name='input')
     conv1 = TimeDistributed(
@@ -29,11 +28,12 @@ def build_model(config):
         input1)
     pooling1 = TimeDistributed(MaxPool1D(), name='pooling')(conv1)
     flat = TimeDistributed(Flatten(), name='flat')(pooling1)
-    lstm1 = LSTM(units=config.lstm_units, return_sequences=True, name='lstm')(flat)
+    lstm_encoder = LSTM(units=config.lstm_units, return_sequences=True, name='lstm_encoder')(flat)
     # dp1 = Dropout(rate=config.dropout_rate, name="dropout")(lstm1)
-    a = attention(lstm1)
-    a = Flatten()(a)
-    fc = Dense(units=config.fc_units, activation='relu', name='fc')(a)
+    a = attention(lstm_encoder)
+    # a = Flatten()(a)
+    lstm_decoder = LSTM(units=64)(a)
+    fc = Dense(units=config.fc_units, activation='relu', name='fc')(lstm_decoder)
     output = Dense(units=config.output_units, activation='softmax', name='output')(fc)
     model = Model(inputs=input1, outputs=output, name='rnn')
     model.compile(optimizer='adam', loss="categorical_crossentropy", metrics=['acc'])
@@ -67,12 +67,12 @@ def attention(inputs):
 
 if __name__ == "__main__":
     # build_model(config_rnn())
-    # build_model(config_rnn())
+    build_model2(config_rnn())
     train_set, train_set_y, validate_set, validate_set_y, test_set, test_set_y = load_data()
     # # print(
     # #     "train_set is {0},validate_set is {1},test_set is {2}".format(train_set.shape, validate_set.shape,
     # #                                                                   test_set.shape))
-    training = True
+    training = False
     config = config_rnn()
     if True is training:
         model = build_model(config)
