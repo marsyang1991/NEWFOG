@@ -31,7 +31,7 @@ def load_data(pre=0, one_hot=True):
         new_xs, new_ys = Util.make_sequence(frame_list, y, length=length)
         if name[:3] in train_s:
             print("Load {0} into training set".format(name))
-            new_xs, new_ys = Util.delete_near(new_xs, new_ys, my_near= 5 )
+            new_xs, new_ys = Util.delete_near(new_xs, new_ys, my_near=5)
             train_set = np.append(train_set, new_xs, axis=0)
             train_y = np.append(train_y, new_ys)
         elif name[:3] in validation_s:
@@ -51,16 +51,23 @@ def load_data(pre=0, one_hot=True):
 
 def build_model(config):
     input1 = Input(shape=config.input_shape, name='input')
+    input2 = Input(shape=[64, 18], name='current')
     conv1 = TimeDistributed(
         Conv1D(filters=config.conv_filters, kernel_size=config.conv_kernal_size, activation='relu'), name='conv')(
         input1)
-    pooling1 = TimeDistributed(MaxPool1D(), name='pooling')(conv1)
-    flat = TimeDistributed(Flatten(), name='flat')(pooling1)
+    conv2 = Conv1D(filters=config.conv_filters, kernel_size=config.conv_kernal_size, activation='relu')(input2)
+    pooling1 = TimeDistributed(MaxPool1D(), name='pooling1')(conv1)
+    pooling2 = MaxPool1D()(conv2)
+    flat = TimeDistributed(Flatten(), name='flat1')(pooling1)
+    flat2 = Flatten()(pooling2)
     lstm1 = LSTM(units=config.lstm_units, return_sequences=False, name='lstm')(flat)
     dp1 = Dropout(rate=config.dropout_rate, name="dropout")(lstm1)
     fc = Dense(units=config.fc_units, activation='relu', name='fc')(dp1)
-    output = Dense(units=config.output_units, activation='softmax', name='output')(fc)
-    my_model = Model(inputs=input1, outputs=output, name='rnn')
+    output = Dense(units=config.output_units, activation='relu', name='output')(fc)
+    output_d = Dense(units=config.output_units, activation='relu', name='output_d')(flat2)
+    merge1 = Multiply()([output, output_d])
+    final_output = Activation(activation='softmax')(merge1)
+    my_model = Model(inputs=[input1, input2], outputs=final_output, name='rnn')
     my_model.compile(optimizer='adam', loss="categorical_crossentropy", metrics=['acc'])
     print(my_model.summary())
     return my_model
@@ -76,13 +83,12 @@ if __name__ == "__main__":
         # train_y = to_categorical(train_set_y, num_classes=2)
         # print(y.shape)
         # validate_y = to_categorical(validate_set_y, num_classes=2)
-        model.fit(x=new_train_set, y=new_train_set_y, batch_size=1, epochs=10,
-                  validation_data=(validate_set, validate_set_y),
-                  callbacks=[TensorBoard(log_dir='./temp/log_rnn'), EarlyStopping(verbose=1)])
+        model.fit(x=[new_train_set, new_train_set[:, -1, :, :]], y=new_train_set_y, batch_size=1, epochs=10,
+                  validation_data=([validate_set, validate_set[:, -1, :, :]], validate_set_y))
         model.save('rnn')
     else:
         model = load_model('rnn')
-    y_ = model.predict(x=test_set)
+    y_ = model.predict(x=[test_set,test_set[:,-1,:,:]])
     y_pred = np.argmax(y_, axis=1)
     y_true = np.argmax(test_set_y, axis=1)
     matrix = confusion_matrix(y_true=y_true, y_pred=y_pred)

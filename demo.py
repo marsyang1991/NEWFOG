@@ -139,7 +139,7 @@ def make_data_for_cnn(one_hot=True):
 
 def change2one_hot(labels, num_class):
     num = len(labels)
-    labels = [i - 1 for i in labels]
+    # labels = [i - 1 for i in labels]
     # onehot_encoded = list()
     # for value in labels:
     #     letter = [0 for _ in range(num_class)]

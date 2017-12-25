@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 from scipy import signal
+import random
 
 
 class FOG:
@@ -17,17 +18,19 @@ class FOG:
         file_list = os.listdir(dir_path)
         fogs = list()
         for file_name in file_list:
+            ff = []
             data = pd.read_csv(dir_path + file_name, header=None)
             data = np.array(data)
             edge = data[1:, -1] - data[:-1, -1]
             starts = np.argwhere(edge == 1)
             ends = np.argwhere(edge == -1)
             assert starts.shape[0] == ends.shape[0]
-            # starts, ends = self.__unite(starts=starts, ends=ends, threshold=100)
+            # starts, ends = self.__unite(starts=starts, ends=ends, threshold=64)
             for i in range(starts.shape[0]):
                 assert starts[i] < ends[i], "start is no larger than end"
-                fog = (file_name, starts[i, 0] + 1, ends[i, 0] + 1)
-                fogs.append(fog)
+                fog = (starts[i] + 1, ends[i] + 1)
+                ff.append(fog)
+            fogs.append((file_name, ff))
         return fogs
 
     def count(self):
@@ -39,7 +42,7 @@ class FOG:
             lengths[i] = self.fogs[i][2] - self.fogs[i][1]
         return lengths
 
-    def __unite(self, starts, ends, threshold=32):
+    def __unite(self, starts, ends, threshold=64):
         starts = np.array(starts)
         ends = np.array(ends)
         i = 0
@@ -51,84 +54,90 @@ class FOG:
             i += 1
         return starts, ends
 
+    def get_pre_fog(self, time=10):
+        pre_fog = list()
+        sampling_rate = 64
+        for i in self.fogs:
+            filename = i[0]
+            e = np.array(i[1])
+            data = pd.read_csv('data/' + filename, header=None)
+            data = np.array(data)
+            for i in range(e.shape[0]):
+                if e[i, 0] < time * sampling_rate:
+                    s = 0
+                else:
+                    s = e[i, 0] - time * sampling_rate
+                pre = data[int(s):int(e[i, 0]), :]
+                if 2 in pre[:, -1]:
+                    print filename
+                pre_fog.append(pre)
+        pre_fog = np.array(pre_fog)
+        print(pre_fog.shape[0])
+        return pre_fog
 
-def extract_frame_matrix(filename):
+
+def annotate_pre_post(data_seqs, pre_time=2 * 64):
+    # data_seqs : ndarray, [timestamps, data_dims]
+    # fogs: ndarray, [start,end]
+    # pre_time: int, the number of samples before FoG
+    # post_time: int, the number of samples after FoG
+    # return: ndarray, [timestamps, data_dims]
+    #         new_data
+    new_data = data_seqs
+    fogs = np.array(get_fogs(data_seqs))
+    for j in range(fogs.shape[0]):
+        pre_start = fogs[j, 0] - pre_time
+        if pre_start < 0:  # ensure the index larger than 0
+            pre_start = 0
+        else:
+            # the index is larger than former FoG's end point
+            if j > 0 and pre_start < fogs[j - 1, 1]:
+                pre_start = fogs[j - 1, 1]
+        new_data[int(pre_start):int(fogs[j, 0]), -1] = 3
+    return new_data
+
+
+def get_raw(filename):
+    data = np.array(pd.read_csv(filename, header=None))
+    return data[:, 1:]
+
+
+def get_fogs(raw):
+    """
+    new data with annotation "pre_fog"(as 3)
+    :return: same shape with get_raw()
+    """
+    ys = raw[:, -1]
+    edge = ys[1:] - ys[:-1]
+    starts = np.argwhere(edge == 1)
+    ends = np.argwhere(edge == -1)
+    ff = list()
+    assert starts.shape[0] == ends.shape[0]
+    for ii in range(starts.shape[0]):
+        assert starts[ii] < ends[ii], "start is no larger than end"
+        fog = [starts[ii] + 1, ends[ii] + 1]
+        ff.append(fog)
+    return ff
+
+
+def extract_frame_matrix(raw, window, step, sampling_rate):
     # slide window: length = 1s; overlay = 50%
     # (samples, steps, data_dims)
-    raw = pd.read_csv(filename, header=None)
-    raw = pd.DataFrame(raw)
     row, col = raw.shape
     start = 0
-    end = start + 64
+    end = start + window
     frame_list = list()
     y = list()
-    data_x, data_y = process_dataset_file(np.array(raw))
-    raw = pd.DataFrame(np.hstack([data_x, np.reshape(data_y, [data_y.shape[0], 1])]))
+    data_x, data_y = process_dataset_file(raw, sampling_rate=sampling_rate)
     while end <= row:
-        sample = raw.iloc[start:end, 1:19]
-        sample = sample.as_matrix()
-        label = raw.iloc[end - 1, -1]
+        sample = data_x[start:end, :]
+        label = data_y[end - 1]
         y.append(label)
         frame_list.append(sample)
-        start = start + 32
-        end = start + 64
-    return frame_list, y
-
-
-def process_dataset_file(data):
-    data_x, data_y = divide_x_y(data)
-    data_y = adjust_idx_labels(data_y)
-    data_y = data_y.astype(int)
-    _, data_x = split_data_into_time_acc(data_x)
-    data_x = filter_acc(data_x)
-    data_x = normalize(data_x)
-    return data_x, data_y
-
-
-# Hardcoded number of sensor channels employed in the Daphnet
-NB_SENSOR_CHANNELS = 9
-# Hardcoded number of the files defining the Daphnet data
-DAPHNET_DATA_FILES_TRAIN = [
-    'data_seq/S01R010.txt',
-    'data_seq/S01R011.txt',
-    'data_seq/S01R020.txt',
-    'data_seq/S03R010.txt',
-    'data_seq/S03R011.txt',
-    'data_seq/S03R020.txt',
-    'data_seq/S03R030.txt',
-    'data_seq/S04R010.txt',
-    'data_seq/S04R011.txt',
-    'data_seq/S05R010.txt',
-    'data_seq/S05R011.txt',
-    'data_seq/S05R012.txt',
-    'data_seq/S05R013.txt',
-    'data_seq/S05R020.txt',
-    'data_seq/S05R021.txt',
-    'data_seq/S06R010.txt',
-    'data_seq/S06R011.txt',
-    'data_seq/S06R012.txt',
-    'data_seq/S06R020.txt',
-    'data_seq/S06R021.txt',
-    'data_seq/S07R010.txt',
-    'data_seq/S07R020.txt',
-    'data_seq/S08R010.txt',
-    'data_seq/S08R011.txt',
-    'data_seq/S08R012.txt',
-    'data_seq/S08R013.txt',
-    'data_seq/S10R010.txt',
-    'data_seq/S10R011.txt'
-]
-DAPHNET_DATA_FILES_TEST = [
-    'data_seq/S02R010.txt',
-    'data_seq/S02R020.txt'
-]
-DAPHNET_DATA_FILES_VALID = [
-    'data_seq/S09R010.txt',
-    'data_seq/S09R011.txt',
-    'data_seq/S09R012.txt',
-    'data_seq/S09R013.txt',
-    'data_seq/S09R014.txt'
-]
+        start = start + step
+        end = start + window
+    y = np.array(y, dtype=np.int8)
+    return frame_list, list(y)
 
 
 def divide_x_y(data):
@@ -137,7 +146,7 @@ def divide_x_y(data):
     :param data: numpy integer matrix
     :return: numpy integer matrix, numpy integer array
     """
-    data_x = data[:, :10]
+    data_x = data[:, :-1]
     data_y = data[:, -1]
     return data_x, data_y
 
@@ -152,25 +161,18 @@ def adjust_idx_labels(data_y):
     return data_y
 
 
-def process_dataset_file(data):
+def process_dataset_file(data, sampling_rate):
     data_x, data_y = divide_x_y(data)
-    data_y = adjust_idx_labels(data_y)
+    data_y = adjust_idx_labels(data_y)  # make the label [0,1]
     data_y = data_y.astype(int)
-    _, data_x = split_data_into_time_acc(data_x)
-    data_x = filter_acc(data_x)
+    data_x = filter_acc(data_x, sampling_rate=sampling_rate)
     data_x = normalize(data_x)
     return data_x, data_y
 
 
-def split_data_into_time_acc(data):
-    time = data[:, 0]
-    acc = data[:, 1:]
-    return time, acc
-
-
-def filter_acc(data_x):
+def filter_acc(data_x, sampling_rate):
     data_x = np.array(data_x, dtype=np.float32)
-    sampling_rate = 64.0
+    # sampling_rate = 64.0
     nyq_freq = sampling_rate / 2.0
     new_channels = []
     for channel in data_x.transpose():
@@ -214,14 +216,80 @@ def butter_lowpass_filter(data, cutoff_freq, nyq_freq, order=4):
     return y
 
 
-def recall(y_true, y_pred):
-    y_true = K.argmax(y_true, axis=1)
-    y_pred = K.argmax(y_pred, axis=1)
-    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-    possible_positives = K.sum(y_true)
-    recall = true_positives / possible_positives
-    return recall
+def make_sequence(xs, ys, length):
+    '''
+    make sequence for RNN
+    :param xs: [n_frame, n_rows=64, n_feature_dims]
+    :param ys: [n_frame]
+    :param length: int
+    :return: new_xs, new_ys 
+    new_xs: [n_frame-length+1, length, n_rows, n_feature_dims]
+    new_ys: [n_frame-length+1]
+    '''
+    xs = np.array(xs)
+    ys = np.array(ys)
+    [n_frame, n_rows, n_dims] = xs.shape
+    new_xs = np.empty([n_frame - length, length, n_rows, n_dims])
+    new_ys = np.empty([n_frame - length])
+    for index in range(length, n_frame):
+        new_x = xs[index - length:index, :, :]
+        new_y = ys[index - 1]
+        new_xs[index - length] = new_x
+        new_ys[index - length] = new_y
+    return new_xs, new_ys
 
 
-if __name__ == "__main__":
-    print(FOG().count())
+def balance_training_data(xs, ys):
+    yy = np.argmax(ys, axis=1)
+    labels = np.unique(yy)
+    xs = np.array(xs)
+    n_labels = np.empty([len(labels)])
+    indice_class = list()
+    for i in range(len(labels)):
+        ind = np.argwhere(yy == labels[i])
+        n_labels[i] = len(ind)
+        indice_class.append(ind)
+    number = int(np.min(n_labels))
+    new_indice = list()
+    for i in range(len(indice_class)):
+        ran = random.sample(range(0, int(n_labels[i])), number)
+        new_indice.extend(indice_class[i][ran])
+    new_indice = np.array(new_indice).reshape([-1]).transpose()
+    new_xs = xs[new_indice]
+    new_ys = ys[new_indice]
+    print("new data shape is {0}".format(new_xs.shape))
+    return new_xs, new_ys
+
+
+def delete_near(xs, ys, my_near=10):
+    """
+    delete samples near y=1
+    :param xs: 
+    :param ys: 
+    :param my_near:
+    :return: new_xs, new_ys
+    """
+    ys = np.array(ys)
+    xs = np.array(xs)
+    edge = ys[:-1] - ys[1:]
+    starts = np.argwhere(edge == 1)
+    ends = np.argwhere(edge == -1)
+    starts = starts + 1
+    ll = np.empty([0])
+    for i in starts:
+        i = i[0]
+        l = np.arange(start=i - my_near, stop=i - 1, step=1)
+        ll = np.append(ll, l, axis=0)
+    for i in ends:
+        l = np.arange(start=i + 1, stop=i + my_near, step=1)
+        ll = np.append(ll, l, axis=0)
+    ind = 0
+    while ind < ll.shape[0]:
+        l = int(ll[ind])
+        if l < 0 or l > ys.shape[0] or ys[l] == 1:
+            ll = np.delete(ll, ind)
+            ind -= 1
+        ind += 1
+    xs = np.delete(xs, ll, axis=0)
+    ys = np.delete(ys, ll, axis=0)
+    return xs, ys
