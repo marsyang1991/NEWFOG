@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from scipy import signal
 import random
+import keras.backend as K
 
 
 class FOG:
@@ -293,3 +294,7 @@ def delete_near(xs, ys, my_near=10):
     xs = np.delete(xs, ll, axis=0)
     ys = np.delete(ys, ll, axis=0)
     return xs, ys
+
+
+def recall(y_pred, y_true):
+   y_pred = K.argmax(y_pred, axis=1)

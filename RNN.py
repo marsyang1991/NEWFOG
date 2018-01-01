@@ -9,13 +9,20 @@ from Config import config_rnn
 import os
 import Util
 
+file_list = ['S01R010.txt', 'S01R011.txt', 'S01R020.txt', 'S02R010.txt', 'S02R020.txt', 'S03R010.txt', 'S03R011.txt',
+             'S03R020.txt', 'S03R030.txt', 'S04R010.txt', 'S04R011.txt', 'S05R010.txt', 'S05R011.txt', 'S05R012.txt',
+             'S05R013.txt', 'S05R020.txt', 'S05R021.txt', 'S06R010.txt', 'S06R011.txt', 'S06R012.txt', 'S06R020.txt',
+             'S06R021.txt', 'S07R010.txt', 'S07R020.txt', 'S08R010.txt', 'S08R011.txt', 'S08R012.txt', 'S08R013.txt',
+             'S09R010.txt', 'S09R011.txt', 'S09R012.txt', 'S09R013.txt',
+             'S09R014.txt', 'S10R010.txt', 'S10R011.txt']
+
 
 def load_data(pre=0, one_hot=True):
     train_s = ['S01', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S10']
     validation_s = ['S09']
     # test_S = ['S02']
     dir_path = 'data/'
-    file_list = os.listdir(dir_path)
+    # file_list = os.listdir(dir_path)
     length = 5
     train_set = np.empty([0, length, 64, 18])
     train_y = np.empty([0])
@@ -31,7 +38,7 @@ def load_data(pre=0, one_hot=True):
         new_xs, new_ys = Util.make_sequence(frame_list, y, length=length)
         if name[:3] in train_s:
             print("Load {0} into training set".format(name))
-            new_xs, new_ys = Util.delete_near(new_xs, new_ys, my_near= 5 )
+            new_xs, new_ys = Util.delete_near(new_xs, new_ys, my_near=5)
             train_set = np.append(train_set, new_xs, axis=0)
             train_y = np.append(train_y, new_ys)
         elif name[:3] in validation_s:
@@ -82,6 +89,7 @@ if __name__ == "__main__":
         model.save('rnn')
     else:
         model = load_model('rnn')
+    print(test_set.shape)
     y_ = model.predict(x=test_set)
     y_pred = np.argmax(y_, axis=1)
     y_true = np.argmax(test_set_y, axis=1)

@@ -50,10 +50,6 @@ def load_data(pre=0, one_hot=True):
     return train_set, train_y, validate_set, validate_y, test_set, test_y
 
 
-def slice(x, index):
-    return x[index, :, :]
-
-
 def build_model(config):
     input1 = Input(shape=config.input_shape, name='input')
     conv1 = TimeDistributed(
@@ -61,42 +57,46 @@ def build_model(config):
         input1)
     pooling1 = TimeDistributed(MaxPool1D(), name='pooling1')(conv1)
     flat = TimeDistributed(Flatten(), name='flat1')(pooling1)  # (,time_step, n_row, n_columns)
+
     lstm1 = LSTM(units=config.lstm_units, return_sequences=False, name='lstm')(flat)
     dp1 = Dropout(rate=config.dropout_rate, name="dropout")(lstm1)
     fc = Dense(units=config.fc_units, activation='relu', name='fc')(dp1)
-    output = Dense(units=config.output_units, activation='relu', name='output')(fc)
-    cur = Lambda(slice, output_shape=([496]), arguments={'index': -1})(flat)
-    output_d = Dense(units=config.output_units, activation='relu', name='output_d')(cur)
-    merge1 = Multiply()([output, output_d])
+    output = Dense(units=config.output_units, activation='softmax', name='output')(fc)
+
+    cur = Lambda(lambda x: x[:, -1, :])(flat)
+    output_d = Dense(units=config.output_units, activation='softmax', name='output_d')(cur)
+    merge1 = Add()([output, output_d])
 
     final_output = Activation(activation='softmax')(merge1)
-    my_model = Model(inputs=[input1], outputs=final_output, name='rnn')
+    my_model = Model(inputs=input1, outputs=final_output, name='rnn_modified')
     my_model.compile(optimizer='adam', loss="categorical_crossentropy", metrics=['acc'])
     print(my_model.summary())
     return my_model
 
 
 if __name__ == "__main__":
+    build_model(config_rnn())
     config = config_rnn()
     # build_model(config)
     train_set, train_set_y, validate_set, validate_set_y, test_set, test_set_y = load_data()
-    # new_train_set, new_train_set_y = Util.balance_training_data(train_set, train_set_y)
+    new_train_set, new_train_set_y = Util.balance_training_data(train_set, train_set_y)
     training = True
     if True is training:
         model = build_model(config)
         # train_y = to_categorical(train_set_y, num_classes=2)
         # print(y.shape)
         # validate_y = to_categorical(validate_set_y, num_classes=2)
-        model.fit(x=train_set, y=train_set_y, batch_size=1, epochs=10,
-                  validation_data=([validate_set], validate_set_y),callbacks=[TensorBoard(log_dir='./log/rnn_m/')])
+        model.fit(x=new_train_set, y=new_train_set_y, batch_size=1, epochs=10,
+                  validation_data=(validate_set, validate_set_y),
+                  callbacks=[TensorBoard(log_dir='./log/rnn_m/'), EarlyStopping()])
         model.save('rnn')
     else:
         model = load_model('rnn')
-    y_ = model.predict(x=[test_set])
+    y_ = model.predict(x=test_set)
     y_pred = np.argmax(y_, axis=1)
     y_true = np.argmax(test_set_y, axis=1)
     matrix = confusion_matrix(y_true=y_true, y_pred=y_pred)
     content = np.column_stack([y_, y_pred, y_true])
     result1 = pd.DataFrame(content, columns=['normal', 'FoG', 'y_pred', 'y_true'])
-    result1.to_csv('./rnn_result.csv')
+    result1.to_csv('./rm_result.csv')
     print(matrix)

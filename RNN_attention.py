@@ -7,19 +7,57 @@ from sklearn.metrics import confusion_matrix
 from keras.callbacks import TensorBoard, EarlyStopping
 from demo import *
 from Config import config_rnn
-from utils import *
-import seq2seq
+import Util
 
-def load_data():
-    file = h5py.File('TrainSet_5.h5', 'r')
-    train_set = file['train_set_x'][:]
-    train_set_y = file['train_set_y'][:]
-    validate_set = file['validate_set_x'][:]
-    validate_set_y = file['validate_y'][:]
-    test_set = file['test_set_x'][:]
-    test_set_y = file['test_set_y'][:]
-    file.close()
-    return train_set, train_set_y, validate_set, validate_set_y, test_set, test_set_y
+
+def load_data(one_hot=True):
+    file_list = ['S01R010.txt', 'S01R011.txt', 'S01R020.txt', 'S02R010.txt', 'S02R020.txt', 'S03R010.txt',
+                 'S03R011.txt',
+                 'S03R020.txt', 'S03R030.txt', 'S04R010.txt', 'S04R011.txt', 'S05R010.txt', 'S05R011.txt',
+                 'S05R012.txt',
+                 'S05R013.txt', 'S05R020.txt', 'S05R021.txt', 'S06R010.txt', 'S06R011.txt', 'S06R012.txt',
+                 'S06R020.txt',
+                 'S06R021.txt', 'S07R010.txt', 'S07R020.txt', 'S08R010.txt', 'S08R011.txt', 'S08R012.txt',
+                 'S08R013.txt',
+                 'S09R010.txt', 'S09R011.txt', 'S09R012.txt', 'S09R013.txt',
+                 'S09R014.txt', 'S10R010.txt', 'S10R011.txt']
+    train_s = ['S01', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S10']
+    validation_s = ['S09']
+    # test_S = ['S02']
+    dir_path = 'data/'
+    # file_list = os.listdir(dir_path)
+    length = 5
+    train_set = np.empty([0, length, 64, 18])
+    train_y = np.empty([0])
+    validate_set = np.empty([0, length, 64, 18])
+    validate_y = np.empty([0])
+    test_set = np.empty([0, length, 64, 18])
+    test_y = np.empty([0])
+    for full_name in file_list:
+        name = full_name.split('.')[0]
+        raw = Util.get_raw(dir_path + full_name)
+        # new_data = Util.annotate_pre_post(raw, pre_time=5 * 64)
+        frame_list, y = Util.extract_frame_matrix(raw, window=64, step=32, sampling_rate=64)
+        new_xs, new_ys = Util.make_sequence(frame_list, y, length=length)
+        if name[:3] in train_s:
+            print("Load {0} into training set".format(name))
+            new_xs, new_ys = Util.delete_near(new_xs, new_ys, my_near=5)
+            train_set = np.append(train_set, new_xs, axis=0)
+            train_y = np.append(train_y, new_ys)
+        elif name[:3] in validation_s:
+            print("Load {0} into validation set".format(name))
+            validate_set = np.append(validate_set, new_xs, axis=0)
+            validate_y = np.append(validate_y, new_ys)
+        else:
+            print("Load {0} into testing set".format(name))
+            test_set = np.append(test_set, new_xs, axis=0)
+            test_y = np.append(test_y, new_ys)
+    if one_hot:
+        train_y = to_categorical(train_y, 2)
+        validate_y = to_categorical(validate_y, 2)
+        test_y = to_categorical(test_y, 2)
+    return train_set, train_y, validate_set, validate_y, test_set, test_y
+
 
 def build_model(config):
     input1 = Input(shape=config.input_shape, name='input')
@@ -36,59 +74,43 @@ def build_model(config):
     fc = Dense(units=config.fc_units, activation='relu', name='fc')(lstm_decoder)
     output = Dense(units=config.output_units, activation='softmax', name='output')(fc)
     model = Model(inputs=input1, outputs=output, name='rnn')
-    model.compile(optimizer='adam', loss="categorical_crossentropy", metrics=['acc'])
+    model.compile(optimizer='adam', loss="binary_crossentropy", metrics=['acc'])
     print(model.summary())
     return model
 
 
-def my_to_catogrical(y):
-    """
-    :param y: [None,n_timestep,1]
-    :return: [None,n_timestep,2]
-    """
-    # print(y.shape)
-    new = np.empty([y.shape[0], 2])
-    for i in range(y.shape[0]):
-        new[i] = to_categorical(y[i, -1], num_classes=2)
-    return new
-
-
 def attention(inputs):
     # [batch_size, time_step, input_dim]
-    # a = Permute((2, 1))(inputs)
     # a = Dense(5, activation='softmax')(a)
-    a = LSTM(5, return_sequences=False)(inputs)
-    a = RepeatVector(128)(a)
-    a_probs = Permute((2, 1), name="activation_vec")(a)
-    output_attention = Multiply()([a_probs, inputs])
+    a = Dense(1)(inputs)
+    a = Activation(activation='softmax')(a)
+    output_attention = Multiply()([a, inputs])
     # output_attention = merge([a_probs, inputs], mode='mul', name='attention_mul')
     return output_attention
 
 
 if __name__ == "__main__":
-    # build_model(config_rnn())
-    build_model2(config_rnn())
-    train_set, train_set_y, validate_set, validate_set_y, test_set, test_set_y = load_data()
+    build_model(config_rnn())
+    train_set, train_set_y, validate_set, validate_set_y, test_xs, test_ys = load_data()
+    new_train_set, new_train_set_y = Util.balance_training_data(train_set, train_set_y)
     # # print(
     # #     "train_set is {0},validate_set is {1},test_set is {2}".format(train_set.shape, validate_set.shape,
     # #                                                                   test_set.shape))
-    training = False
+    training = True
     config = config_rnn()
     if True is training:
         model = build_model(config)
-        train_y = to_categorical(train_set_y, num_classes=2)
-        # print(y.shape)
-        validate_y = to_categorical(validate_set_y, num_classes=2)
-        model.fit(x=train_set, y=train_y, batch_size=config.train_batch_size, epochs=config.train_epoch,
-                  validation_data=(validate_set, validate_y),
-                  callbacks=[TensorBoard(log_dir='./log/rnn'), EarlyStopping(verbose=1)])
-        model.save('rnn')
+        model.fit(x=new_train_set, y=new_train_set_y, batch_size=config.train_batch_size, epochs=config.train_epoch,
+                  validation_data=(validate_set, validate_set_y),
+                  callbacks=[TensorBoard(log_dir='./log/rnn_attention'), EarlyStopping(verbose=1)])
+        model.save('rnn_attention')
     else:
-        model = load_model('rnn')
-    y_pred = model.predict(x=test_set)
-    y_pred = np.argmax(y_pred.reshape([-1, 2]), axis=1)
-    y_true = test_set_y
-    print(y_true.shape)
-    matrix = confusion_matrix(y_true=y_true, y_pred=y_pred)
-    print(matrix)
-    print(cal_cm(matrix))
+        model = load_model('rnn_attention')
+    y_pred = np.argmax(model.predict(test_xs), axis=1)
+    y_true = np.argmax(test_ys, 1)
+    cm = confusion_matrix(y_pred=y_pred, y_true=y_true)
+    print(cm)
+    # print(accuracy_score(y_true=y_true, y_pred=y_pred))
+    content = np.column_stack([np.array(model.predict(test_xs)), y_pred, y_true])
+    result1 = pd.DataFrame(content, columns=['normal', 'FoG', 'y_pred', 'y_true'])
+    result1.to_csv('./attention_result.csv')
