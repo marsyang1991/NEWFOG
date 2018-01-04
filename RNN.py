@@ -2,12 +2,14 @@ from keras.models import Model, load_model
 from keras.layers import *
 from keras.layers.pooling import MaxPool1D
 from keras.utils import to_categorical
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, f1_score
 from keras.callbacks import TensorBoard, EarlyStopping
 from demo import *
 from Config import config_rnn
 import os
 import Util
+from keras.wrappers.scikit_learn import KerasClassifier
+from sklearn.model_selection import GridSearchCV
 
 file_list = ['S01R010.txt', 'S01R011.txt', 'S01R020.txt', 'S02R010.txt', 'S02R020.txt', 'S03R010.txt', 'S03R011.txt',
              'S03R020.txt', 'S03R030.txt', 'S04R010.txt', 'S04R011.txt', 'S05R010.txt', 'S05R011.txt', 'S05R012.txt',
@@ -17,13 +19,12 @@ file_list = ['S01R010.txt', 'S01R011.txt', 'S01R020.txt', 'S02R010.txt', 'S02R02
              'S09R014.txt', 'S10R010.txt', 'S10R011.txt']
 
 
-def load_data(pre=0, one_hot=True):
+def load_data(length, one_hot=True):
     train_s = ['S01', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S10']
     validation_s = ['S09']
     # test_S = ['S02']
     dir_path = 'data/'
     # file_list = os.listdir(dir_path)
-    length = 5
     train_set = np.empty([0, length, 64, 18])
     train_y = np.empty([0])
     validate_set = np.empty([0, length, 64, 18])
@@ -38,7 +39,7 @@ def load_data(pre=0, one_hot=True):
         new_xs, new_ys = Util.make_sequence(frame_list, y, length=length)
         if name[:3] in train_s:
             print("Load {0} into training set".format(name))
-            new_xs, new_ys = Util.delete_near(new_xs, new_ys, my_near=5)
+            # new_xs, new_ys = Util.delete_near(new_xs, new_ys, my_near=5)
             train_set = np.append(train_set, new_xs, axis=0)
             train_y = np.append(train_y, new_ys)
         elif name[:3] in validation_s:
@@ -56,33 +57,32 @@ def load_data(pre=0, one_hot=True):
     return train_set, train_y, validate_set, validate_y, test_set, test_y
 
 
-def build_model(config):
+def build_model(lstm_units=512, fc_units=1024):
+    config = config_rnn()
     input1 = Input(shape=config.input_shape, name='input')
     conv1 = TimeDistributed(
         Conv1D(filters=config.conv_filters, kernel_size=config.conv_kernal_size, activation='relu'), name='conv')(
         input1)
     pooling1 = TimeDistributed(MaxPool1D(), name='pooling')(conv1)
     flat = TimeDistributed(Flatten(), name='flat')(pooling1)
-    lstm1 = LSTM(units=config.lstm_units, return_sequences=False, name='lstm')(flat)
+    lstm1 = LSTM(lstm_units, return_sequences=False, name='lstm')(flat)
     dp1 = Dropout(rate=config.dropout_rate, name="dropout")(lstm1)
-    fc = Dense(units=config.fc_units, activation='relu', name='fc')(dp1)
+    fc = Dense(units=fc_units, activation='relu', name='fc')(dp1)
     output = Dense(units=config.output_units, activation='softmax', name='output')(fc)
     my_model = Model(inputs=input1, outputs=output, name='rnn')
-    my_model.compile(optimizer='adam', loss="categorical_crossentropy", metrics=['acc'])
-    print(my_model.summary())
+    my_model.compile(optimizer='adam', loss="binary_crossentropy", metrics=['acc'])
+    # print(my_model.summary())
     return my_model
 
 
 if __name__ == "__main__":
-    train_set, train_set_y, validate_set, validate_set_y, test_set, test_set_y = load_data()
+    # find_para()
+    train_set, train_set_y, validate_set, validate_set_y, test_set, test_set_y = load_data(length=5)
     new_train_set, new_train_set_y = Util.balance_training_data(train_set, train_set_y)
     training = True
-    config = config_rnn()
+    # config = config_rnn(conv_filters=64, conv_kernal_size=3, lstm_units=128, fc_units=1024, dropout_rate=0.2)
     if True is training:
-        model = build_model(config)
-        # train_y = to_categorical(train_set_y, num_classes=2)
-        # print(y.shape)
-        # validate_y = to_categorical(validate_set_y, num_classes=2)
+        model = build_model(lstm_units=512, fc_units=1024)
         model.fit(x=new_train_set, y=new_train_set_y, batch_size=1, epochs=10,
                   validation_data=(validate_set, validate_set_y),
                   callbacks=[TensorBoard(log_dir='./temp/log_rnn'), EarlyStopping(verbose=1)])
@@ -94,7 +94,9 @@ if __name__ == "__main__":
     y_pred = np.argmax(y_, axis=1)
     y_true = np.argmax(test_set_y, axis=1)
     matrix = confusion_matrix(y_true=y_true, y_pred=y_pred)
+    f1 = f1_score(y_true=y_true, y_pred=y_pred, average='weighted')
     content = np.column_stack([y_, y_pred, y_true])
     result1 = pd.DataFrame(content, columns=['normal', 'FoG', 'y_pred', 'y_true'])
     result1.to_csv('./rnn_result.csv')
     print(matrix)
+    print(f1)

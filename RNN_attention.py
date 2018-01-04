@@ -82,9 +82,12 @@ def build_model(config):
 def attention(inputs):
     # [batch_size, time_step, input_dim]
     # a = Dense(5, activation='softmax')(a)
-    a = Dense(1)(inputs)
-    a = Activation(activation='softmax')(a)
+    a = LSTM(128)(inputs)
+    a = Dense(5, activation='tanh')(a)
+    a = RepeatVector(128)(a)
+    a = Permute((2, 1))(a)
     output_attention = Multiply()([a, inputs])
+    # output_attention = Permute((2,1))(output_attention)
     # output_attention = merge([a_probs, inputs], mode='mul', name='attention_mul')
     return output_attention
 
